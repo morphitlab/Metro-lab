@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Delhi Metro Commute PWA</title>
+  <meta name="theme-color" content="#050505">
+  <link rel="manifest" href="manifest.json">
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #050505;
+      color: white;
+      overflow: hidden;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* Hide scrollbar for Chrome, Safari and Opera */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    /* Hide scrollbar for IE, Edge and Firefox */
+    .no-scrollbar {
+      -ms-overflow-style: none;  /* IE and Edge */
+      scrollbar-width: none;  /* Firefox */
+    }
+
+    /* Fluid Spring Animations */
+    .spring-transition {
+      transition: all 0.7s cubic-bezier(0.175, 0.885, 0.32, 1.1);
+    }
+    
+    .tab-content {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      transform: translateY(100%);
+      opacity: 0;
+      pointer-events: none;
+      transition: transform 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.1), opacity 0.4s ease;
+    }
+
+    .tab-content.active {
+      transform: translateY(0);
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    /* Map interactions */
+    .station-node {
+      transition: all 0.5s ease-in-out;
+      transform-origin: center;
+    }
+    .station-node:hover {
+      transform: scale(2);
+    }
+    
+    .glass-panel {
+      background: rgba(28, 28, 30, 0.95);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+    }
+
+    /* Toast Animation */
+    #toast-container {
+      transform: translateY(-150%);
+      transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    #toast-container.show {
+      transform: translateY(0);
+    }
+  </style>
+</head>
+<body class="h-[100dvh] w-screen flex flex-col relative selection:bg-blue-500/30">
+
+  <!-- Background SVG Map Layer -->
+  <div class="absolute inset-0 top-0 left-0 right-0 bottom-1/2 opacity-70 pointer-events-auto z-0" id="map-container">
+    <svg id="map-svg" class="w-full h-full p-8 drop-shadow-2xl" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
+      <!-- Edges and Stations will be injected here via JS -->
+    </svg>
+    <div class="absolute bottom-0 left-0 right-0 h-40 bg-gradient-to-t from-[#050505] to-transparent pointer-events-none"></div>
+  </div>
+
+  <!-- Main Content Wrapper (Tabs) -->
+  <div class="absolute inset-0 z-10 pointer-events-none flex flex-col justify-end pb-28">
+    
+    <!-- Tab 1: Home (My Journeys) -->
+    <div id="tab-home" class="tab-content w-full h-[70vh] flex flex-col justify-end active">
+      <div class="glass-panel h-full rounded-t-[40px] shadow-[0_-20px_50px_rgba(0,0,0,0.5)] border-t border-white/10 pt-8 px-6 flex flex-col pointer-events-auto">
+        <div class="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-6"></div>
+        <div class="flex justify-between items-center mb-8">
+          <h1 class="text-3xl font-bold tracking-tight text-white/90">My Journeys</h1>
+          <button onclick="showToast('Settings opened')" class="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 active:scale-90 transition-all">
+            <i data-lucide="settings" class="w-5 h-5 text-gray-400"></i>
+          </button>
+        </div>
+        <div class="flex-1 overflow-y-auto no-scrollbar pb-8">
+          <h2 class="text-[11px] font-bold text-gray-500 tracking-widest uppercase mb-4 px-1">Recent Commutes</h2>
+          <div id="history-list" class="space-y-3">
+            <!-- History populated by JS -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 2: Search Route -->
+    <div id="tab-search" class="tab-content w-full flex flex-col justify-end">
+      <div class="glass-panel min-h-[75vh] max-h-[85vh] rounded-t-[40px] shadow-[0_-20px_50px_rgba(0,0,0,0.5)] border-t border-white/10 pt-8 px-6 flex flex-col pointer-events-auto">
+        <div class="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-6"></div>
+        <div class="flex justify-between items-center mb-8">
+          <h1 class="text-3xl font-bold tracking-tight text-white/90">Find Route</h1>
+          <button onclick="showToast('Menu options')" class="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 active:scale-90 transition-all">
+            <i data-lucide="more-horizontal" class="w-5 h-5 text-gray-400"></i>
+          </button>
+        </div>
+        
+        <div class="flex-1 overflow-y-auto no-scrollbar pb-8">
+          <div class="bg-[#2c2c2e]/40 rounded-[32px] p-6 border border-white/5 relative shadow-inner">
+            <div class="absolute left-[39px] top-12 bottom-12 w-0.5 bg-gradient-to-b from-green-500 via-gray-600 to-red-500 rounded-full opacity-50"></div>
+            
+            <!-- Start Station -->
+            <div class="flex items-center space-x-4 mb-5 relative z-10">
+              <div class="w-10 h-10 rounded-full bg-[#1c1c1e] border-[3px] border-green-500 flex items-center justify-center flex-shrink-0 shadow-[0_0_15px_rgba(34,197,94,0.2)]">
+                <div class="w-2.5 h-2.5 bg-green-500 rounded-full"></div>
+              </div>
+              <div class="w-full relative">
+                <input id="input-start" type="text" placeholder="Start (e.g. Dwarka)" class="w-full bg-transparent border-b border-white/10 pb-2 text-xl font-medium focus:outline-none focus:border-white transition-colors placeholder:text-gray-600" oninput="handleInput(this, 'start')" onblur="hideSuggestions(this)">
+                <div id="suggest-start" class="absolute top-full left-0 right-0 bg-[#3c3c3e] rounded-xl mt-2 shadow-2xl z-50 hidden overflow-hidden"></div>
+              </div>
+            </div>
+
+            <!-- Via Stations Container -->
+            <div id="via-stations-container" class="space-y-5"></div>
+
+            <!-- End Station -->
+            <div class="flex items-center space-x-4 mt-5 relative z-10">
+              <div class="w-10 h-10 rounded-full bg-[#1c1c1e] border-[3px] border-red-500 flex items-center justify-center flex-shrink-0 shadow-[0_0_15px_rgba(239,68,68,0.2)]">
+                <i data-lucide="map-pin" class="w-4 h-4 text-red-500"></i>
+              </div>
+              <div class="w-full relative">
+                <input id="input-end" type="text" placeholder="Destination (e.g. Noida)" class="w-full bg-transparent border-b border-white/10 pb-2 text-xl font-medium focus:outline-none focus:border-white transition-colors placeholder:text-gray-600" oninput="handleInput(this, 'end')" onblur="hideSuggestions(this)">
+                <div id="suggest-end" class="absolute top-full left-0 right-0 bg-[#3c3c3e] rounded-xl mt-2 shadow-2xl z-50 hidden overflow-hidden"></div>
+              </div>
+            </div>
+
+            <button onclick="addViaStation()" class="flex items-center text-sm font-semibold text-[#00BFFF] hover:text-white mt-6 ml-[52px] active:scale-95 transition-all bg-[#00BFFF]/10 px-4 py-2 rounded-full">
+              <i data-lucide="plus" class="w-4 h-4 mr-2" stroke-width="3"></i> Add Intermediate Stop
+            </button>
+          </div>
+
+          <!-- Route Results Container -->
+          <div id="route-result-container" class="mt-6 hidden">
+            <!-- Populated via JS -->
+          </div>
+
+          <button id="btn-calculate" onclick="calculateRoute()" class="w-full mt-8 font-bold py-4 rounded-[20px] shadow-lg transition-all duration-300 flex justify-center items-center group bg-gradient-to-r from-[#00BFFF] to-[#3b82f6] text-white hover:opacity-90 active:scale-[0.98]">
+            <i data-lucide="navigation" class="w-5 h-5 mr-2 group-hover:translate-x-1 transition-transform"></i> 
+            <span>Show Routes</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 3: Passport (Gamification) -->
+    <div id="tab-passport" class="tab-content w-full h-full flex flex-col justify-start pt-16 px-6 pointer-events-auto overflow-y-auto no-scrollbar pb-32 bg-[#050505]">
+      <div class="flex justify-between items-center mb-8">
+        <h1 class="text-4xl font-bold tracking-tight text-white/95">Passport</h1>
+        <div class="flex space-x-4 items-center">
+          <button onclick="showToast('Preparing sharing link...')" class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 active:scale-90 transition-all">
+            <i data-lucide="share" class="w-4 h-4"></i>
+          </button>
+          <button class="w-12 h-12 rounded-full bg-gray-600 overflow-hidden border-2 border-white/20 active:scale-95 transition-transform shadow-lg">
+             <div class="w-full h-full bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 animate-pulse"></div>
+          </button>
+        </div>
+      </div>
+
+      <div class="mb-8">
+         <button class="bg-[#2c2c2e] hover:bg-[#3c3c3e] border border-white/5 px-5 py-2.5 rounded-full text-sm font-bold active:scale-95 transition-all shadow-sm">
+           All-Time
+         </button>
+      </div>
+
+      <div class="space-y-5">
+        <!-- Main Stats Card -->
+        <div class="bg-gradient-to-br from-[#1E1B4B] via-[#2E1065] to-[#0A0B26] rounded-[32px] p-7 shadow-2xl relative overflow-hidden border border-white/10 group cursor-pointer" onclick="showToast('Detailed stats opened')">
+           <div class="flex justify-between items-start mb-8 relative z-10">
+              <div>
+                <h2 class="text-sm font-bold tracking-widest text-white/90 uppercase flex items-center">
+                  ALL-TIME METRO PASSPORT
+                </h2>
+                <p class="text-[10px] text-white/50 font-mono mt-1 tracking-widest">🎟 DEL • METRO • YATRA</p>
+              </div>
+              <i data-lucide="share" class="w-5 h-5 text-white/60 hover:text-white transition-colors" onclick="event.stopPropagation(); showToast('Shared passport!')"></i>
+           </div>
+           <div class="grid grid-cols-2 gap-y-8 gap-x-4 mb-10 relative z-10">
+              <div>
+                <p class="text-[11px] font-bold text-white/50 tracking-wider uppercase mb-1">Journeys</p>
+                <div id="stat-trips" class="text-5xl font-bold tracking-tighter">0</div>
+                <p id="stat-trips-sub" class="text-xs text-[#00BFFF] mt-1 font-semibold hidden">Active Rider</p>
+              </div>
+              <div>
+                <p class="text-[11px] font-bold text-white/50 tracking-wider uppercase mb-1">Distance</p>
+                <div class="flex items-baseline space-x-1">
+                  <div id="stat-dist" class="text-5xl font-bold tracking-tighter">0</div>
+                  <span class="text-lg font-bold">km</span>
+                </div>
+              </div>
+              <div>
+                <p class="text-[11px] font-bold text-white/50 tracking-wider uppercase mb-1">Unique Stations</p>
+                <div id="stat-stations" class="text-2xl font-bold">0</div>
+              </div>
+              <div>
+                 <p class="text-[11px] font-bold text-white/50 tracking-wider uppercase mb-1">Lines Explored</p>
+                 <div id="stat-lines" class="text-2xl font-bold">0</div>
+              </div>
+           </div>
+           <button class="w-full bg-white/10 group-hover:bg-white/20 active:bg-white/30 transition-all duration-300 py-4 rounded-2xl flex justify-between items-center px-5 backdrop-blur-sm relative z-10">
+              <span class="font-bold text-sm">All Travel Stats</span>
+              <i data-lucide="arrow-right" class="w-4 h-4 group-hover:translate-x-1 transition-transform"></i>
+           </button>
+           <div class="absolute -bottom-12 -right-12 opacity-[0.03] group-hover:opacity-[0.05] transition-opacity duration-700">
+              <i data-lucide="train-front" class="w-64 h-64"></i>
+           </div>
+        </div>
+
+        <!-- Gamification Card -->
+        <div class="bg-gradient-to-br from-[#7F1D1D] to-[#450A0A] rounded-[32px] p-7 shadow-2xl relative overflow-hidden border border-white/5 group cursor-pointer" onclick="showToast('Achievements opened')">
+           <div class="flex justify-between items-start mb-2 relative z-10">
+              <div id="stat-badges" class="text-7xl font-bold text-white tracking-tighter">0</div>
+              <i data-lucide="share" class="w-5 h-5 text-white/60 hover:text-white transition-colors" onclick="event.stopPropagation(); showToast('Shared achievements!')"></i>
+           </div>
+           <div class="relative z-10 mb-8">
+              <p class="text-xl font-bold text-white leading-tight">badges unlocked</p>
+              <p class="text-sm text-red-200/80 mt-1 font-medium">Keep riding to unlock 'Master Commuter'</p>
+           </div>
+           <button class="w-full bg-black/20 group-hover:bg-black/30 active:bg-black/40 transition-all duration-300 py-4 rounded-2xl flex justify-between items-center px-5 backdrop-blur-sm relative z-10">
+              <span class="font-bold text-sm text-red-100">All Badges & Rewards</span>
+              <i data-lucide="arrow-right" class="w-4 h-4 text-red-100 group-hover:translate-x-1 transition-transform"></i>
+           </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating Bottom Nav Bar -->
+  <div class="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-auto w-11/12 max-w-sm">
+    <div class="flex justify-between items-center px-4 py-3 bg-[#1c1c1e]/90 backdrop-blur-3xl rounded-full border border-white/10 shadow-[0_10px_40px_rgba(0,0,0,0.8)]">
+      
+      <button onclick="switchTab('home')" id="nav-home" class="nav-btn flex flex-col items-center justify-center w-20 py-1 transition-all duration-300 ease-[cubic-bezier(0.175,0.885,0.32,1.275)] opacity-100 scale-105">
+        <i data-lucide="train-front" class="nav-icon mb-1 w-6 h-6 text-[#00BFFF]"></i>
+        <span class="nav-label text-[10px] font-semibold text-[#00BFFF]">My Journeys</span>
+      </button>
+
+      <button onclick="switchTab('search')" id="nav-search" class="nav-btn flex flex-col items-center justify-center w-20 py-1 transition-all duration-300 ease-[cubic-bezier(0.175,0.885,0.32,1.275)] opacity-50 hover:opacity-80 active:scale-95">
+        <i data-lucide="search" class="nav-icon mb-1 w-6 h-6 text-white"></i>
+        <span class="nav-label text-[10px] font-semibold text-white">Search Route</span>
+      </button>
+
+      <button onclick="switchTab('passport')" id="nav-passport" class="nav-btn flex flex-col items-center justify-center w-20 py-1 transition-all duration-300 ease-[cubic-bezier(0.175,0.885,0.32,1.275)] opacity-50 hover:opacity-80 active:scale-95">
+        <i data-lucide="map" class="nav-icon mb-1 w-6 h-6 text-white"></i>
+        <span class="nav-label text-[10px] font-semibold text-white">Passport</span>
+      </button>
+
+    </div>
+  </div>
+
+  <!-- Global Toast Component -->
+  <div id="toast-container" class="fixed top-12 left-0 right-0 flex justify-center z-[100] pointer-events-none">
+    <div class="bg-[#2c2c2e] text-white px-6 py-3 rounded-full shadow-2xl border border-white/10 flex items-center space-x-3">
+      <i data-lucide="check-circle-2" class="w-4 h-4 text-green-400"></i>
+      <span id="toast-message" class="font-medium text-sm"></span>
+    </div>
+  </div>
+
+  <script>
+    // --- OFFLINE DATA LAYER ---
+    const METRO_DATA = {
+      stations: [
+        { id: 's1', name: 'Samaypur Badli', lines: ['yellow'], lat: 28.7460, lng: 77.1396 },
+        { id: 's2', name: 'Kashmere Gate', lines: ['yellow', 'red', 'violet'], lat: 28.6665, lng: 77.2253 },
+        { id: 's3', name: 'Rajiv Chowk', lines: ['yellow', 'blue'], lat: 28.6328, lng: 77.2197 },
+        { id: 's4', name: 'Central Secretariat', lines: ['yellow', 'violet'], lat: 28.6143, lng: 77.2117 },
+        { id: 's5', name: 'Hauz Khas', lines: ['yellow', 'magenta'], lat: 28.5432, lng: 77.2005 },
+        { id: 's6', name: 'HUDA City Centre', lines: ['yellow'], lat: 28.4593, lng: 77.0724 },
+        { id: 's7', name: 'Dwarka Sec 21', lines: ['blue'], lat: 28.5523, lng: 77.0583 },
+        { id: 's8', name: 'Janakpuri West', lines: ['blue', 'magenta'], lat: 28.6294, lng: 77.0777 },
+        { id: 's9', name: 'Mandi House', lines: ['blue', 'violet'], lat: 28.6258, lng: 77.2343 },
+        { id: 's10', name: 'Botanical Garden', lines: ['blue', 'magenta'], lat: 28.5640, lng: 77.3208 },
+        { id: 's11', name: 'Noida City Centre', lines: ['blue'], lat: 28.5747, lng: 77.3561 },
+        { id: 's12', name: 'Rithala', lines: ['red'], lat: 28.7207, lng: 77.1071 },
+        { id: 's13', name: 'Dilshad Garden', lines: ['red'], lat: 28.6841, lng: 77.3204 },
+        { id: 's14', name: 'Lajpat Nagar', lines: ['violet', 'pink'], lat: 28.5706, lng: 77.2424 },
+        { id: 's15', name: 'Badarpur', lines: ['violet'], lat: 28.5029, lng: 77.3031 },
+      ],
+      edges: [
+        { src: 's1', tgt: 's2', time: 20, line: 'yellow' },
+        { src: 's2', tgt: 's3', time: 10, line: 'yellow' },
+        { src: 's3', tgt: 's4', time: 5, line: 'yellow' },
+        { src: 's4', tgt: 's5', time: 15, line: 'yellow' },
+        { src: 's5', tgt: 's6', time: 25, line: 'yellow' },
+        { src: 's7', tgt: 's8', time: 20, line: 'blue' },
+        { src: 's8', tgt: 's3', time: 30, line: 'blue' },
+        { src: 's3', tgt: 's9', time: 5, line: 'blue' },
+        { src: 's9', tgt: 's10', time: 25, line: 'blue' },
+        { src: 's10', tgt: 's11', time: 10, line: 'blue' },
+        { src: 's12', tgt: 's2', time: 35, line: 'red' },
+        { src: 's2', tgt: 's13', time: 20, line: 'red' },
+        { src: 's8', tgt: 's5', time: 25, line: 'magenta' },
+        { src: 's5', tgt: 's10', time: 20, line: 'magenta' },
+        { src: 's2', tgt: 's9', time: 12, line: 'violet' },
+        { src: 's9', tgt: 's4', time: 8, line: 'violet' },
+        { src: 's4', tgt: 's14', time: 15, line: 'violet' },
+        { src: 's14', tgt: 's15', time: 25, line: 'violet' },
+      ]
+    };
+
+    // --- ALGORITHMS ---
+    const haversineDistance = (lat1, lon1, lat2, lon2) => {
+      const R = 6371; 
+      const dLat = (lat2 - lat1) * (Math.PI/180);
+      const dLon = (lon2 - lon1) * (Math.PI/180);
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+        Math.cos(lat1 * (Math.PI/180)) * Math.cos(lat2 * (Math.PI/180)) *
+        Math.sin(dLon/2) * Math.sin(dLon/2);
+      return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+    };
+
+    const calculateFare = (distKm) => {
+      if (distKm <= 2) return 10;
+      if (distKm <= 5) return 20;
+      if (distKm <= 12) return 30;
+      if (distKm <= 21) return 40;
+      if (distKm <= 32) return 50;
+      return 60;
+    };
+
+    const runDijkstra = (startId, endId) => {
+      const graph = {};
+      METRO_DATA.stations.forEach(s => graph[s.id] = []);
+      METRO_DATA.edges.forEach(e => {
+        graph[e.src].push({ tgt: e.tgt, time: e.time, line: e.line });
+        graph[e.tgt].push({ tgt: e.src, time: e.time, line: e.line });
+      });
+
+      const distances = {};
+      const previous = {};
+      const previousLine = {};
+      const unvisited = new Set();
+
+      METRO_DATA.stations.forEach(s => {
+        distances[s.id] = Infinity;
+        previous[s.id] = null;
+        previousLine[s.id] = null;
+        unvisited.add(s.id);
+      });
+      distances[startId] = 0;
+
+      while (unvisited.size > 0) {
+        let curr = Array.from(unvisited).reduce((minNode, node) => 
+          distances[node] < distances[minNode] ? node : minNode
+        );
+
+        if (distances[curr] === Infinity || curr === endId) break;
+        unvisited.delete(curr);
+
+        graph[curr].forEach(neighbor => {
+          if (!unvisited.has(neighbor.tgt)) return;
+          
+          let penalty = 0;
+          if (previousLine[curr] && previousLine[curr] !== neighbor.line) {
+            penalty = 5; // 5 min interchange penalty
+          }
+          
+          const alt = distances[curr] + neighbor.time + penalty;
+          if (alt < distances[neighbor.tgt]) {
+            distances[neighbor.tgt] = alt;
+            previous[neighbor.tgt] = curr;
+            previousLine[neighbor.tgt] = neighbor.line;
+          }
+        });
+      }
+
+      const path = [];
+      let u = endId;
+      let totalInterchanges = 0;
+      let linesUsed = new Set();
+      
+      if (previous[u] !== null || u === startId) {
+        while (u !== null) {
+          const station = METRO_DATA.stations.find(s => s.id === u);
+          path.unshift(station);
+          if (previousLine[u]) linesUsed.add(previousLine[u]);
+          u = previous[u];
+        }
+      }
+
+      let prevLine = null;
+      for (let i = 1; i < path.length; i++) {
+         const edge = graph[path[i-1].id].find(e => e.tgt === path[i].id);
+         if (prevLine && prevLine !== edge.line) totalInterchanges++;
+         prevLine = edge.line;
+      }
+
+      return { path, time: distances[endId], interchanges: totalInterchanges, lines: Array.from(linesUsed) };
+    };
+
+    const calculateFullRoute = (startName, viaNames, endName) => {
+      const getStationId = name => METRO_DATA.stations.find(s => s.name.toLowerCase() === name.toLowerCase())?.id;
+      
+      const stops = [startName, ...viaNames, endName].map(getStationId).filter(id => id);
+      if (stops.length < 2) return null;
+
+      let fullPath = [];
+      let totalTime = 0;
+      let totalInterchanges = 0;
+      let allLines = new Set();
+      let totalDist = 0;
+
+      for (let i = 0; i < stops.length - 1; i++) {
+        const segment = runDijkstra(stops[i], stops[i+1]);
+        if (!segment.path.length) return null;
+
+        if (i > 0) segment.path.shift(); 
+        fullPath = [...fullPath, ...segment.path];
+        totalTime += segment.time;
+        totalInterchanges += segment.interchanges;
+        segment.lines.forEach(l => allLines.add(l));
+      }
+      
+      for (let i = 0; i < fullPath.length - 1; i++) {
+        totalDist += haversineDistance(fullPath[i].lat, fullPath[i].lng, fullPath[i+1].lat, fullPath[i+1].lng);
+      }
+
+      return {
+        line: Array.from(allLines)[0] || 'all',
+        stations: fullPath.map(s => s.name),
+        pathNodes: fullPath,
+        duration: `${totalTime}m`,
+        fare: `₹${calculateFare(totalDist)}`,
+        interchanges: totalInterchanges,
+        rawLines: Array.from(allLines),
+        distKm: totalDist
+      };
+    };
+
+    const getLineColor = (line) => {
+      const colors = { yellow: '#FFD700', blue: '#00BFFF', red: '#EF4444', magenta: '#EC4899', violet: '#8B5CF6', pink: '#F472B6', all: '#FFFFFF' };
+      return colors[line] || '#71717a';
+    };
+
+    // --- STREAMING_CHUNK:App State Management & DOM Interactions ---
+    
+    let activeTab = 'home';
+    let journeyHistory = [];
+    let passportStats = { distance: 0, stations: 0, trips: 0, lines: [] };
+    let currentRouteResult = null;
+    let viaStations = [];
+    let allStationNames = METRO_DATA.stations.map(s => s.name);
+
+    // Initialize App
+    document.addEventListener("DOMContentLoaded", () => {
+      lucide.createIcons();
+      loadStorage();
+      renderMap();
+      renderHome();
+      renderPassport();
+      
+      // Register Service Worker for PWA
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js').catch(err => console.log('SW registration failed', err));
+      }
+    });
+
+    function loadStorage() {
+      const saved = localStorage.getItem('delhiMetroHistory');
+      if (saved) {
+        journeyHistory = JSON.parse(saved);
+        calculateStats();
+      }
+    }
+
+    function calculateStats() {
+      let dist = 0;
+      let stSet = new Set();
+      let lnSet = new Set();
+      
+      journeyHistory.forEach(h => {
+        dist += h.distKm || 0;
+        h.stations.forEach(s => stSet.add(s));
+        (h.rawLines || [h.line]).forEach(l => lnSet.add(l));
+      });
+
+      passportStats = {
+        distance: Math.round(dist),
+        stations: stSet.size,
+        trips: journeyHistory.length,
+        lines: Array.from(lnSet)
+      };
+    }
+
+    // Tab Switching
+    function switchTab(tabId) {
+      activeTab = tabId;
+      
+      // Update UI Tabs
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.getElementById(`tab-${tabId}`).classList.add('active');
+
+      // Update Nav Bar visually
+      document.querySelectorAll('.nav-btn').forEach(btn => {
+        btn.classList.remove('opacity-100', 'scale-105');
+        btn.classList.add('opacity-50');
+      });
+      document.querySelectorAll('.nav-label, .nav-icon').forEach(el => {
+        el.classList.remove('text-[#00BFFF]');
+        el.classList.add('text-white');
+      });
+
+      const activeBtn = document.getElementById(`nav-${tabId}`);
+      activeBtn.classList.remove('opacity-50');
+      activeBtn.classList.add('opacity-100', 'scale-105');
+      activeBtn.querySelector('.nav-icon').classList.replace('text-white', 'text-[#00BFFF]');
+      activeBtn.querySelector('.nav-label').classList.replace('text-white', 'text-[#00BFFF]');
+
+      // Conditional Rendering updates
+      if (tabId === 'home') renderHome();
+      if (tabId === 'passport') renderPassport();
+    }
+
+    // --- STREAMING_CHUNK:Interactive SVG Map Renderer ---
+    function renderMap(selectedRouteSet = new Set()) {
+      const svg = document.getElementById('map-svg');
+      svg.innerHTML = ''; // Clear existing
+      
+      const lats = METRO_DATA.stations.map(s => s.lat);
+      const lngs = METRO_DATA.stations.map(s => s.lng);
+      const minLat = Math.min(...lats) - 0.05, maxLat = Math.max(...lats) + 0.05;
+      const minLng = Math.min(...lngs) - 0.05, maxLng = Math.max(...lngs) + 0.05;
+
+      const getCoord = (lat, lng) => ({
+        x: ((lng - minLng) / (maxLng - minLng)) * 100,
+        y: ((maxLat - lat) / (maxLat - minLat)) * 100
+      });
+
+      // Render Edges
+      METRO_DATA.edges.forEach(e => {
+        const src = METRO_DATA.stations.find(s => s.id === e.src);
+        const tgt = METRO_DATA.stations.find(s => s.id === e.tgt);
+        const srcPos = getCoord(src.lat, src.lng);
+        const tgtPos = getCoord(tgt.lat, tgt.lng);
+        
+        const inRoute = selectedRouteSet.has(src.name) && selectedRouteSet.has(tgt.name);
+        const isFaded = selectedRouteSet.size > 0 && !inRoute;
+
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", `${srcPos.x}%`);
+        line.setAttribute("y1", `${srcPos.y}%`);
+        line.setAttribute("x2", `${tgtPos.x}%`);
+        line.setAttribute("y2", `${tgtPos.y}%`);
+        line.setAttribute("stroke", getLineColor(e.line));
+        line.setAttribute("stroke-width", inRoute ? "1.5" : "0.5");
+        line.setAttribute("stroke-opacity", isFaded ? "0.1" : "0.6");
+        line.setAttribute("stroke-linecap", "round");
+        line.classList.add("transition-all", "duration-1000", "ease-in-out");
+        svg.appendChild(line);
+      });
+
+      // Render Stations
+      METRO_DATA.stations.forEach(s => {
+        const pos = getCoord(s.lat, s.lng);
+        const inRoute = selectedRouteSet.has(s.name);
+        const isFaded = selectedRouteSet.size > 0 && !inRoute;
+
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("cx", `${pos.x}%`);
+        circle.setAttribute("cy", `${pos.y}%`);
+        circle.setAttribute("r", inRoute ? "1.5" : "0.8");
+        circle.setAttribute("fill", inRoute ? "#ffffff" : "#4b5563");
+        circle.setAttribute("class", `station-node cursor-pointer transition-all duration-700 ${isFaded ? 'opacity-20' : 'opacity-100 hover:scale-150 origin-center'}`);
+        circle.onclick = () => showToast(s.name);
+        svg.appendChild(circle);
+      });
+    }
+
+    // --- STREAMING_CHUNK:View Updaters & Actions ---
+    
+    function renderHome() {
+      const list = document.getElementById('history-list');
+      if (journeyHistory.length === 0) {
+        list.innerHTML = `
+          <div class="text-center p-8 bg-white/5 rounded-3xl border border-white/5">
+            <i data-lucide="map" class="w-8 h-8 mx-auto text-gray-500 mb-3"></i>
+            <p class="text-gray-400 text-sm">No saved journeys yet. Head to Search to plot a route.</p>
+          </div>
+        `;
+        lucide.createIcons();
+        return;
+      }
+
+      list.innerHTML = journeyHistory.map((journey, idx) => `
+        <button onclick="viewPastRoute(${idx})" class="w-full text-left flex items-center justify-between p-4 bg-white/5 hover:bg-white/10 border border-transparent hover:border-white/10 rounded-3xl active:scale-[0.98] transition-all duration-300 group">
+          <div class="flex items-center space-x-4 overflow-hidden">
+            <div class="w-12 h-12 rounded-2xl bg-black/40 flex items-center justify-center border border-white/5 shadow-inner group-hover:bg-white/5 transition-colors flex-shrink-0">
+              <i data-lucide="train-front" class="w-5 h-5 text-gray-300"></i>
+            </div>
+            <div class="min-w-0">
+              <div class="flex items-center space-x-2 text-white/90">
+                <span class="font-semibold truncate max-w-[120px]">${journey.stations[0]}</span>
+                <i data-lucide="arrow-right" class="w-3.5 h-3.5 text-gray-500 flex-shrink-0"></i>
+                <span class="font-semibold truncate max-w-[120px]">${journey.stations[journey.stations.length-1]}</span>
+              </div>
+              <div class="flex items-center space-x-2 mt-1">
+                <span class="w-2 h-2 rounded-full flex-shrink-0" style="background-color: ${getLineColor(journey.line)}"></span>
+                <p class="text-xs text-gray-400 truncate">${journey.duration} • ${journey.date}</p>
+              </div>
+            </div>
+          </div>
+          <div class="w-8 h-8 flex-shrink-0 rounded-full bg-black/20 flex items-center justify-center group-hover:bg-white/10 transition-colors ml-2">
+             <i data-lucide="chevron-down" class="w-4 h-4 text-gray-500 group-hover:text-white -rotate-90"></i>
+          </div>
+        </button>
+      `).join('');
+      lucide.createIcons();
+    }
+
+    function viewPastRoute(idx) {
+      const journey = journeyHistory[idx];
+      const routeSet = new Set(journey.stations);
+      renderMap(routeSet);
+      showToast(`Viewing route: ${journey.stations[0]} to ${journey.stations[journey.stations.length-1]}`);
+    }
+
+    function renderPassport() {
+      document.getElementById('stat-trips').innerText = passportStats.trips;
+      document.getElementById('stat-dist').innerText = passportStats.distance;
+      document.getElementById('stat-stations').innerText = passportStats.stations;
+      document.getElementById('stat-lines').innerText = passportStats.lines.length;
+      
+      const sub = document.getElementById('stat-trips-sub');
+      if (passportStats.trips > 2) sub.classList.remove('hidden');
+      else sub.classList.add('hidden');
+
+      let unlocked = 0;
+      if (passportStats.distance > 10) unlocked++;
+      if (passportStats.distance > 50) unlocked++;
+      if (passportStats.lines.length > 2) unlocked++;
+      if (passportStats.stations > 5) unlocked++;
+      document.getElementById('stat-badges').innerText = unlocked;
+    }
+
+    // --- Search Tab Logic ---
+    function handleInput(inputElem, field) {
+      const val = inputElem.value;
+      const suggestBox = document.getElementById(`suggest-${field}`);
+      
+      // Update state arrays
+      if (typeof field === 'number') {
+        viaStations[field] = val;
+      }
+      
+      if (val.length > 0) {
+        const filtered = allStationNames.filter(s => s.toLowerCase().includes(val.toLowerCase()) && s !== val).slice(0, 4);
+        if (filtered.length > 0) {
+          suggestBox.innerHTML = filtered.map(s => `
+            <div onmousedown="applySuggestion('${s}', '${field}')" class="p-3 hover:bg-white/10 cursor-pointer text-sm font-medium border-b border-white/5 last:border-0">${s}</div>
+          `).join('');
+          suggestBox.classList.remove('hidden');
+        } else {
+          suggestBox.classList.add('hidden');
+        }
+      } else {
+        suggestBox.classList.add('hidden');
+      }
+    }
+
+    function hideSuggestions(inputElem) {
+      // Small timeout to allow mousedown on suggest items to fire first
+      setTimeout(() => {
+        const nextElem = inputElem.nextElementSibling;
+        if(nextElem) nextElem.classList.add('hidden');
+      }, 150);
+    }
+
+    function applySuggestion(name, field) {
+      if (field === 'start') {
+        document.getElementById('input-start').value = name;
+      } else if (field === 'end') {
+        document.getElementById('input-end').value = name;
+      } else {
+        viaStations[parseInt(field)] = name;
+        renderViaStations();
+      }
+      document.getElementById(`suggest-${field}`).classList.add('hidden');
+    }
+
+    function addViaStation() {
+      viaStations.push('');
+      renderViaStations();
+      showToast("Added intermediate stop");
+    }
+
+    function removeViaStation(idx) {
+      viaStations.splice(idx, 1);
+      renderViaStations();
+      showToast("Removed stop");
+    }
+
+    function renderViaStations() {
+      const container = document.getElementById('via-stations-container');
+      container.innerHTML = viaStations.map((via, idx) => `
+        <div class="flex items-center space-x-4 relative z-10">
+          <div class="w-10 h-10 rounded-full bg-[#1c1c1e] border-[3px] border-gray-500 flex items-center justify-center flex-shrink-0 shadow-lg">
+            <div class="w-2.5 h-2.5 bg-gray-500 rounded-full"></div>
+          </div>
+          <div class="w-full relative">
+            <input type="text" value="${via}" placeholder="Via Station" class="w-full bg-transparent border-b border-white/10 pb-2 text-xl font-medium focus:outline-none focus:border-white transition-colors placeholder:text-gray-600" oninput="handleInput(this, ${idx})" onblur="hideSuggestions(this)">
+            <div id="suggest-${idx}" class="absolute top-full left-0 right-0 bg-[#3c3c3e] rounded-xl mt-2 shadow-2xl z-50 hidden overflow-hidden"></div>
+          </div>
+          <button onclick="removeViaStation(${idx})" class="w-8 h-8 rounded-full bg-red-500/10 text-red-400 flex items-center justify-center hover:bg-red-500/20 active:scale-90 transition-all flex-shrink-0">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+      `).join('');
+      lucide.createIcons();
+    }
+
+    function calculateRoute() {
+      const startName = document.getElementById('input-start').value;
+      const endName = document.getElementById('input-end').value;
+      
+      if (!startName || !endName) {
+        showToast("Please enter Start and End stations");
+        return;
+      }
+
+      const btn = document.getElementById('btn-calculate');
+      btn.innerHTML = `<div class="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin mr-2"></div> Plotting Route...`;
+      btn.classList.replace('bg-gradient-to-r', 'bg-[#2c2c2e]');
+      btn.classList.add('cursor-wait', 'text-gray-400');
+      btn.classList.remove('text-white', 'hover:opacity-90');
+
+      setTimeout(() => {
+        // Reset button
+        btn.innerHTML = `<i data-lucide="navigation" class="w-5 h-5 mr-2 group-hover:translate-x-1 transition-transform"></i> Show Routes`;
+        btn.classList.replace('bg-[#2c2c2e]', 'bg-gradient-to-r');
+        btn.classList.remove('cursor-wait', 'text-gray-400');
+        btn.classList.add('text-white', 'hover:opacity-90');
+        lucide.createIcons();
+
+        const result = calculateFullRoute(startName, viaStations.filter(v=>v), endName);
+        
+        if (!result) {
+          showToast("Route not found. Check station names.");
+          return;
+        }
+
+        currentRouteResult = result;
+        renderMap(new Set(result.stations));
+        
+        // Show result box
+        const resultContainer = document.getElementById('route-result-container');
+        btn.classList.add('hidden'); // hide calculate button
+
+        resultContainer.innerHTML = `
+          <div class="p-6 bg-gradient-to-br from-blue-900/30 to-purple-900/20 border border-blue-500/20 rounded-[32px] animate-in zoom-in-95 duration-500">
+            <div class="flex justify-between items-center mb-4">
+              <h3 class="text-lg font-bold text-white">Calculated Route</h3>
+              <span class="bg-blue-500 text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wide">${result.stations.length} Stops</span>
+            </div>
+            <div class="flex space-x-6">
+              <div>
+                <p class="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Time</p>
+                <p class="text-2xl font-bold">${result.duration}</p>
+              </div>
+              <div>
+                <p class="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Fare</p>
+                <p class="text-2xl font-bold">${result.fare}</p>
+              </div>
+              <div>
+                <p class="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Changes</p>
+                <p class="text-2xl font-bold">${result.interchanges}</p>
+              </div>
+            </div>
+            <button onclick="saveJourney()" class="w-full mt-6 bg-white text-black font-bold py-3.5 rounded-xl hover:bg-gray-200 active:scale-[0.98] transition-all shadow-lg">
+              Complete & Save Trip
+            </button>
+          </div>
+        `;
+        resultContainer.classList.remove('hidden');
+        showToast("Route optimized successfully");
+
+      }, 600);
+    }
+
+    function saveJourney() {
+      if (!currentRouteResult) return;
+      
+      // Formatting the specific date dynamically
+      const dateOpts = { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+      const newEntry = {
+        ...currentRouteResult,
+        id: Date.now(),
+        date: new Date().toLocaleDateString('en-US', dateOpts).replace(',', ''), 
+      };
+      
+      journeyHistory.unshift(newEntry);
+      calculateStats();
+      localStorage.setItem('delhiMetroHistory', JSON.stringify(journeyHistory));
+      
+      showToast("Journey saved to Passport!");
+      
+      // Reset Form
+      currentRouteResult = null;
+      document.getElementById('input-start').value = '';
+      document.getElementById('input-end').value = '';
+      viaStations = [];
+      renderViaStations();
+      document.getElementById('route-result-container').classList.add('hidden');
+      document.getElementById('btn-calculate').classList.remove('hidden');
+      renderMap(); // clear map highlights
+      
+      // Navigate Home
+      switchTab('home');
+    }
+
+    // --- Utility: Toast ---
+    let toastTimeout;
+    function showToast(msg) {
+      const toast = document.getElementById('toast-container');
+      document.getElementById('toast-message').innerText = msg;
+      
+      toast.classList.add('show');
+      clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => {
+        toast.classList.remove('show');
+      }, 3000);
+    }
+  </script>
+</body>
+</html>
